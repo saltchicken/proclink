@@ -32,6 +32,7 @@ fn main() {
     flag.store(FLAG_READ, Ordering::SeqCst);
     println!("[Writer] Initialized flag to READ state.");
 
+    // TODO: When loop breaks, cleanup shared memory.
     loop {
         match flag.compare_exchange(FLAG_READ, FLAG_WRITTEN, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
