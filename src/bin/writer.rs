@@ -1,4 +1,4 @@
-use shared_memory::{Shmem, ShmemConf}; // ‼️ Import Shmem
+use shared_memory::ShmemConf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -7,7 +7,6 @@ mod common;
 use common::*;
 
 fn main() {
-    // ‼️ Try to open the shared memory. If it fails, then create it.
     let shmem = ShmemConf::new()
         .size(SHMEM_SIZE)
         .os_id("my_synchronized_shmem")
@@ -28,7 +27,7 @@ fn main() {
 
     let flag = unsafe { &*(shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
 
-    // ‼️ When we first start (or restart), ensure the state is clean.
+    // When we first start (or restart), ensure the state is clean.
     // Set the flag to READ so we can write a new message immediately.
     flag.store(FLAG_READ, Ordering::SeqCst);
     println!("[Writer] Initialized flag to READ state.");
