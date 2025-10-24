@@ -1,0 +1,15 @@
+[package]
+name = "rust_sharing_memory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shared_memory = "0.12.4"
+
+[[bin]]
+name = "writer"
+path = "src/bin/writer.rs"
+
+[[bin]]
+name = "reader"
+path = "src/bin/reader.rs"
