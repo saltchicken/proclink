@@ -1,53 +1,34 @@
-use shared_memory::ShmemConf;
-use std::sync::atomic::{AtomicU8, Ordering};
+use proclink::ShmemWriter;
 use std::thread;
 use std::time::Duration;
 
-mod common;
-use common::*;
-
+// This main function just sets up the writer and runs the loop.
 fn main() {
-    let shmem = ShmemConf::new()
-        .size(SHMEM_SIZE)
-        .os_id("my_synchronized_shmem")
-        .open()
-        .or_else(|_| {
-            ShmemConf::new()
-                .size(SHMEM_SIZE)
-                .os_id("my_synchronized_shmem")
-                .create()
-        })
-        .expect("Failed to open or create shared memory");
+    let writer =
+        ShmemWriter::new("my_synchronized_shmem").expect("Failed to open or create shared memory");
 
-    println!(
-        "[Writer] Attached to shared memory. Pointer: {:p}",
-        shmem.as_ptr()
-    );
-    println!("[Writer] Now running in a loop. Press Ctrl+C to exit.");
+    println!("[Writer] Attached to shared memory. Now writing in a loop. Press Ctrl+C to exit.");
 
-    let flag = unsafe { &*(shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
-
-    // When we first start (or restart), ensure the state is clean.
-    // Set the flag to READ so we can write a new message immediately.
-    flag.store(FLAG_READ, Ordering::SeqCst);
-    println!("[Writer] Initialized flag to READ state.");
-
-    // TODO: When loop breaks, cleanup shared memory.
+    let mut counter = 0;
     loop {
-        match flag.compare_exchange(FLAG_READ, FLAG_WRITTEN, Ordering::SeqCst, Ordering::SeqCst) {
-            Ok(_) => {
-                let message = b"Hello from the writer!";
-                let data_ptr = unsafe { shmem.as_ptr().add(DATA_INDEX) };
-                unsafe {
-                    std::ptr::copy_nonoverlapping(message.as_ptr(), data_ptr, message.len());
-                }
-                println!("[Writer] ✅ Wrote new data to shared memory.");
+        // ‼️ Create a dynamic message
+        let message_str = format!("Hello from the writer! Count: {}", counter);
+        let message = message_str.as_bytes();
+
+        // ‼️ Call the library's write function
+        match writer.write(message) {
+            Ok(true) => {
+                println!("[Writer] ✅ Wrote new data: \"{}\"", message_str);
+                counter += 1;
             }
-            Err(_) => {
-                // The flag was not 0, so we do nothing.
+            Ok(false) => {
+                // Reader hasn't read the last message yet, just wait.
+            }
+            Err(e) => {
+                eprintln!("[Writer] ❌ Error writing: {}", e);
+                break;
             }
         }
-
         thread::sleep(Duration::from_secs(2));
     }
 }

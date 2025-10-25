@@ -1,41 +1,32 @@
-use shared_memory::ShmemConf;
+use proclink::ShmemReader;
 use std::str;
-use std::sync::atomic::{AtomicU8, Ordering};
 
-mod common;
-use common::*;
-
+// ‼️ The main logic is moved to src/lib.rs.
+// This main function just sets up the reader and calls read.
 fn main() {
-    let shmem = ShmemConf::new()
-        .os_id("my_synchronized_shmem")
-        .open()
+    let reader = ShmemReader::new("my_synchronized_shmem")
         .expect("Failed to open shared memory. Is the writer running?");
 
-    println!(
-        "[Reader] Attached to shared memory. Pointer: {:p}",
-        shmem.as_ptr()
-    );
+    println!("[Reader] Attached to shared memory.");
 
-    let flag = unsafe {
-        let flag_ptr = shmem.as_ptr().add(FLAG_INDEX); // ‼️ Use .add() to avoid the cast
-        &*(flag_ptr as *const AtomicU8)
-    };
-
-    // Atomically check if the flag is FLAG_WRITTEN. If it is, set it to FLAG_READ.
-    match flag.compare_exchange(FLAG_WRITTEN, FLAG_READ, Ordering::SeqCst, Ordering::SeqCst) {
-        Ok(_) => {
-            // Success! The flag was 1, and we set it to 0. We can now read.
-            let data_ptr = unsafe { shmem.as_ptr().add(DATA_INDEX) };
-            let message_len = "Hello from the writer!".len();
-
-            let msg_bytes = unsafe { std::slice::from_raw_parts(data_ptr, message_len) };
-            let message = str::from_utf8(msg_bytes).unwrap();
-
-            println!("[Reader] ✅ Read new data: \"{}\"", message);
+    // ‼️ Call the library's read function
+    match reader.read() {
+        Ok(Some(data)) => {
+            // ‼️ Convert the received bytes to a string
+            match str::from_utf8(&data) {
+                Ok(message) => {
+                    println!("[Reader] ✅ Read new data: \"{}\"", message);
+                }
+                Err(_) => {
+                    println!("[Reader] ✅ Read new data (raw bytes): {:?}", data);
+                }
+            }
         }
-        Err(_) => {
-            // The flag was not 1, meaning there is no new data to read.
+        Ok(None) => {
             println!("[Reader] ⚠️ No new data to read.");
+        }
+        Err(e) => {
+            eprintln!("[Reader] ❌ Error reading: {}", e);
         }
     }
 }
