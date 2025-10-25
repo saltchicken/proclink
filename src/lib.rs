@@ -6,10 +6,6 @@ pub const FLAG_READ: u8 = 0;
 /// Flag is 1: The buffer has been written to by the writer.
 pub const FLAG_WRITTEN: u8 = 1;
 
-/// The total size of the shared memory mapping.
-// (4096 for payload + 5 for metadata)
-pub const SHMEM_SIZE: usize = 4101;
-
 /// The index of the flag in shared memory. (1 byte)
 pub const FLAG_INDEX: usize = 0;
 /// The index where the message length is stored. (4 bytes for u32)
@@ -19,22 +15,34 @@ pub const DATA_INDEX: usize = 5;
 
 pub struct ShmemWriter {
     shmem: Shmem,
+    payload_size: usize,
 }
 
 impl ShmemWriter {
     /// Creates or opens the shared memory segment for writing.
-    pub fn new(os_id: &str) -> Result<Self, ShmemError> {
+    pub fn new(os_id: &str, payload_size: usize) -> Result<Self, ShmemError> {
+        let total_size = DATA_INDEX + payload_size;
         let shmem = ShmemConf::new()
-            .size(SHMEM_SIZE)
+            .size(total_size)
             .os_id(os_id)
             .open()
-            .or_else(|_| ShmemConf::new().size(SHMEM_SIZE).os_id(os_id).create())?;
+            .or_else(|_| ShmemConf::new().size(total_size).os_id(os_id).create())?;
+
+        if shmem.len() != total_size {
+            // TODO: Handle error properly
+            println!(
+                "Shared memory segment size mismatch. Is another process using this ID with a different size?"
+            );
+        }
 
         // Initialize flag to READ state so we can write immediately.
         let flag = unsafe { &*(shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
         flag.store(FLAG_READ, Ordering::SeqCst);
 
-        Ok(Self { shmem })
+        Ok(Self {
+            shmem,
+            payload_size,
+        })
     }
 
     /// Attempts to write data to shared memory.
@@ -43,7 +51,7 @@ impl ShmemWriter {
     /// Returns Err if the message is too large.
     pub fn write(&self, message: &[u8]) -> Result<bool, &'static str> {
         // Check if the message fits
-        if message.len() > SHMEM_SIZE - DATA_INDEX {
+        if message.len() > self.payload_size {
             return Err("Message is too large for shared memory segment.");
         }
 
@@ -74,13 +82,23 @@ impl ShmemWriter {
 
 pub struct ShmemReader {
     shmem: Shmem,
+    payload_size: usize,
 }
 
 impl ShmemReader {
     /// Opens the shared memory segment for reading.
     pub fn new(os_id: &str) -> Result<Self, ShmemError> {
         let shmem = ShmemConf::new().os_id(os_id).open()?;
-        Ok(Self { shmem })
+        let total_size = shmem.len();
+        if total_size < DATA_INDEX {
+            // TODO: Handle error properly
+            println!("Shared memory segment is too small.");
+        }
+        let payload_size = total_size - DATA_INDEX;
+        Ok(Self {
+            shmem,
+            payload_size,
+        })
     }
 
     /// Attempts to read data from shared memory.
@@ -100,7 +118,7 @@ impl ShmemReader {
                     let message_len = len_ptr.read() as usize;
 
                     // Check for potential buffer over-read
-                    if message_len > SHMEM_SIZE - DATA_INDEX {
+                    if message_len > self.payload_size {
                         // This indicates corrupted memory or a misbehaving writer.
                         // We set the flag back to READ but return an error.
                         return Err("Read invalid data length from shared memory.");

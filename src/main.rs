@@ -1,8 +1,9 @@
 use proclink::{ShmemReader, ShmemWriter};
 
 fn main() {
+    const PAYLOAD_SIZE: usize = 4096;
     // You can now use the clean API
-    let writer = ShmemWriter::new("my_app_shmem").unwrap();
+    let writer = ShmemWriter::new("my_app_shmem", PAYLOAD_SIZE).unwrap();
     loop {
         match writer.write(b"Data from my new project!") {
             Ok(true) => println!("My new project wrote successfully!"),

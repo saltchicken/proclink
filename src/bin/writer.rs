@@ -3,8 +3,9 @@ use std::thread;
 use std::time::Duration;
 // This main function just sets up the writer and runs the loop.
 fn main() {
-    let writer =
-        ShmemWriter::new("my_synchronized_shmem").expect("Failed to open or create shared memory");
+    const PAYLOAD_SIZE: usize = 4096;
+    let writer = ShmemWriter::new("my_synchronized_shmem", PAYLOAD_SIZE)
+        .expect("Failed to open or create shared memory");
     println!("[Writer] Attached to shared memory. Now writing in a loop. Press Ctrl+C to exit.");
     let mut counter: u64 = 0; // ‼️ Use u64 for 8 bytes
     loop {
