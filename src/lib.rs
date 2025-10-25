@@ -7,7 +7,8 @@ pub const FLAG_READ: u8 = 0;
 pub const FLAG_WRITTEN: u8 = 1;
 
 /// The total size of the shared memory mapping.
-pub const SHMEM_SIZE: usize = 4096;
+// (4096 for payload + 5 for metadata)
+pub const SHMEM_SIZE: usize = 4101;
 
 /// The index of the flag in shared memory. (1 byte)
 pub const FLAG_INDEX: usize = 0;
