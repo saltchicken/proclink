@@ -1,13 +1,41 @@
-use proclink::ShmemReader;
+use proclink::{ShmemLinkError, ShmemReader};
+use std::process;
 
 fn main() {
-    let reader = ShmemReader::new("my_synchronized_shmem")
-        .expect("Failed to open shared memory. Is the writer running?");
-    println!("[Reader] Attached to shared memory.");
+    let reader = match ShmemReader::new("my_synchronized_shmem") {
+        Ok(r) => {
+            println!("[Reader] Attached to shared memory.");
+            r
+        }
+        Err(e) => {
+            match e {
+                ShmemLinkError::Shmem(shmem_err) => {
+                    eprintln!(
+                        "[Reader] ❌ Failed to open shared memory: {}. Is the writer running?",
+                        shmem_err
+                    );
+                }
+                ShmemLinkError::TooSmall { found, required } => {
+                    eprintln!(
+                        "[Reader] ❌ Shared memory segment is too small. Found {}, need at least {}.",
+                        found, required
+                    );
+                }
+                // Other arms aren't expected from ShmemReader::new, but we can be exhaustive
+                _ => {
+                    eprintln!(
+                        "[Reader] ❌ An unexpected error occurred on creation: {}",
+                        e
+                    );
+                }
+            }
+            process::exit(1);
+        }
+    };
+
     match reader.read() {
         Ok(Some(data)) => {
             println!("[Reader] ✅ Read new data. Size: {} bytes.", data.len());
-
             // Optional: Read the counter from the first 8 bytes
             if data.len() >= 8 {
                 match data[0..8].try_into() {

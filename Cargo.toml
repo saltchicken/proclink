@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 shared_memory = "0.12.4"
+thiserror = "2.0.17"
 
 [lib]
 name = "proclink"
