@@ -6,20 +6,16 @@ use thiserror::Error;
 pub enum ShmemLinkError {
     #[error("Shared memory error: {0}")]
     Shmem(#[from] ShmemError),
-
     #[error(
         "Shared memory segment size mismatch. Expected {expected}, found {found}. Is another process using this ID with a different size?"
     )]
     SizeMismatch { expected: usize, found: usize },
-
     #[error("Shared memory segment is too small. Found {found}, required at least {required}.")]
     TooSmall { found: usize, required: usize },
-
     #[error(
         "Message is too large for the configured payload size. Max: {max_size}, Given: {given_size}"
     )]
     MessageTooLarge { max_size: usize, given_size: usize },
-
     #[error(
         "Read invalid data length from shared memory. Corrupted segment? Length read: {length_read}, Max allowed: {max_allowed}"
     )]
@@ -33,16 +29,19 @@ pub enum ShmemLinkError {
 pub const FLAG_READ: u8 = 0;
 /// Flag is 1: The buffer has been written to by the writer.
 pub const FLAG_WRITTEN: u8 = 1;
+
 /// The index of the flag in shared memory. (1 byte)
 pub const FLAG_INDEX: usize = 0;
 /// The index where the message length is stored. (4 bytes for u32)
 pub const LEN_INDEX: usize = 1;
 /// The index where the actual message data starts. (1 + 4)
 pub const DATA_INDEX: usize = 5;
+
 pub struct ShmemWriter {
     shmem: Shmem,
     payload_size: usize,
 }
+
 impl ShmemWriter {
     /// Creates or opens the shared memory segment for writing.
     pub fn new(os_id: &str, payload_size: usize) -> Result<Self, ShmemLinkError> {
@@ -59,14 +58,17 @@ impl ShmemWriter {
                 found: shmem.len(),
             });
         }
+
         // Initialize flag to READ state so we can write immediately.
         let flag = unsafe { &*(shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
         flag.store(FLAG_READ, Ordering::SeqCst);
+
         Ok(Self {
             shmem,
             payload_size,
         })
     }
+
     /// Attempts to write data to shared memory.
     /// Returns Ok(true) on successful write.
     /// Returns Ok(false) if the buffer is still full (not read yet).
@@ -79,7 +81,9 @@ impl ShmemWriter {
                 given_size: message.len(),
             });
         }
+
         let flag = unsafe { &*(self.shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
+
         // Try to atomically swap the flag from READ (0) to WRITTEN (1)
         match flag.compare_exchange(FLAG_READ, FLAG_WRITTEN, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
@@ -88,6 +92,7 @@ impl ShmemWriter {
                     // Write the length of the message first
                     let len_ptr = self.shmem.as_ptr().add(LEN_INDEX) as *mut u32;
                     len_ptr.write(message.len() as u32);
+
                     // Write the actual message data
                     let data_ptr = self.shmem.as_ptr().add(DATA_INDEX);
                     std::ptr::copy_nonoverlapping(message.as_ptr(), data_ptr, message.len());
@@ -101,10 +106,12 @@ impl ShmemWriter {
         }
     }
 }
+
 pub struct ShmemReader {
     shmem: Shmem,
     payload_size: usize,
 }
+
 impl ShmemReader {
     /// Opens the shared memory segment for reading.
     pub fn new(os_id: &str) -> Result<Self, ShmemLinkError> {
@@ -116,26 +123,32 @@ impl ShmemReader {
                 required: DATA_INDEX,
             });
         }
+
         let payload_size = total_size - DATA_INDEX;
         Ok(Self {
             shmem,
             payload_size,
         })
     }
+
+    // ‼️ START CHANGES
     /// Attempts to read data from shared memory.
-    /// Returns Ok(Some(Vec<u8>)) if new data was read.
+    /// Returns Ok(Some(&[u8])) if new data was read. ‼️
     /// Returns Ok(None) if there is no new data to read.
-    pub fn read(&self) -> Result<Option<Vec<u8>>, ShmemLinkError> {
+    /// ‼️ Added lifetime 'a and changed return type from Vec<u8> to &'a [u8]
+    pub fn read<'a>(&'a self) -> Result<Option<&'a [u8]>, ShmemLinkError> {
         let flag = unsafe { &*(self.shmem.as_ptr().add(FLAG_INDEX) as *const AtomicU8) };
+
         // Try to atomically swap the flag from WRITTEN (1) to READ (0)
         match flag.compare_exchange(FLAG_WRITTEN, FLAG_READ, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => {
                 // Success! The flag was 1, we set it to 0. We can read.
-                let data;
+                // ‼️ Removed the owned `data: Vec<u8>`
                 unsafe {
                     // Read the message length first
                     let len_ptr = self.shmem.as_ptr().add(LEN_INDEX) as *const u32;
                     let message_len = len_ptr.read() as usize;
+
                     // Check for potential buffer over-read
                     if message_len > self.payload_size {
                         // This indicates corrupted memory or a misbehaving writer.
@@ -145,12 +158,14 @@ impl ShmemReader {
                             max_allowed: self.payload_size,
                         });
                     }
+
                     // Read the data using the dynamic length
                     let data_ptr = self.shmem.as_ptr().add(DATA_INDEX);
+                    // ‼️ Create a slice with lifetime 'a
                     let msg_slice = std::slice::from_raw_parts(data_ptr, message_len);
-                    data = msg_slice.to_vec(); // Copy data out
+                    // ‼️ Return the slice directly (no .to_vec())
+                    Ok(Some(msg_slice))
                 }
-                Ok(Some(data)) // Return the data
             }
             Err(_) => {
                 // The flag was not 1, meaning no new data to read.
@@ -158,4 +173,5 @@ impl ShmemReader {
             }
         }
     }
+    // ‼️ END CHANGES
 }
