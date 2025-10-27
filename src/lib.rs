@@ -33,9 +33,9 @@ pub const FLAG_WRITTEN: u8 = 1;
 /// The index of the flag in shared memory. (1 byte)
 pub const FLAG_INDEX: usize = 0;
 /// The index where the message length is stored. (4 bytes for u32)
-pub const LEN_INDEX: usize = 1;
+pub const LEN_INDEX: usize = 4;
 /// The index where the actual message data starts. (1 + 4)
-pub const DATA_INDEX: usize = 5;
+pub const DATA_INDEX: usize = 8;
 
 pub struct ShmemWriter {
     shmem: Shmem,
